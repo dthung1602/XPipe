@@ -1,9 +1,15 @@
+mod camera;
+mod models;
+mod resources;
+
 use log::{debug, error, info};
 use std::sync::Arc;
+use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+use crate::models::{ModelVertex, Vertex};
 
 pub struct State {
     window: Arc<Window>,
@@ -13,6 +19,14 @@ pub struct State {
     device: wgpu::Device,
     queue: wgpu::Queue,
     render_pipeline: wgpu::RenderPipeline,
+
+    camera: camera::Camera,
+    camera_uniform: camera::CameraUniform,
+    camera_bind_group: wgpu::BindGroup,
+    camera_buffer: wgpu::Buffer,
+
+    pipe_model_I: models::Model,
+    pipe_model_L: models::Model,
 }
 
 impl State {
@@ -63,10 +77,46 @@ impl State {
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
+        let camera = camera::Camera::new(size.width as f32, size.height as f32);
+        let mut camera_uniform = camera::CameraUniform::new();
+        camera_uniform.update_view_projection(&camera);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("CameraBuffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("CameraBindGroupLayout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("CameraBindGroup"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("RenderPipelineLayout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -77,7 +127,9 @@ impl State {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[],
+                buffers: &[
+                    ModelVertex::layout(),
+                ],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -110,6 +162,12 @@ impl State {
             multiview: None,
             cache: None,
         });
+
+        let pipe_model_I = models::Model::load_model("pipe.obj", &device).await?;
+        let pipe_model_L = models::Model::load_model("curve.obj", &device).await?;
+
+
+
         Ok(Self {
             window,
             surface,
@@ -118,6 +176,14 @@ impl State {
             device,
             queue,
             render_pipeline,
+
+            camera,
+            camera_uniform,
+            camera_bind_group,
+            camera_buffer,
+
+            pipe_model_I,
+            pipe_model_L,
         })
     }
 
@@ -141,14 +207,18 @@ impl State {
 
         let output = self.surface.get_current_texture()?;
 
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("RenderEncoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("RenderEncoder"),
+            });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("RenderPass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -168,6 +238,13 @@ impl State {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            let pipe_mesh = &self.pipe_model_L.meshes[0];
+            render_pass.set_vertex_buffer(0, pipe_mesh.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(pipe_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..pipe_mesh.num_elements, 0, 0..1);
         }
 
         // submit will accept anything that implements IntoIter

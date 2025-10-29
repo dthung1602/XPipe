@@ -9,7 +9,7 @@ bytemuck = {version =  "1.24.0", features = ["derive"] }
 cgmath = "0.18.0"
 env_logger = "0.11.8"
 log = "0.4.28"
-tobj = "4.0.3"
+tobj = { version = "4.0.3", features = ["async"] }
 wgpu = "27.0.1"
 winit = "0.30.12"
 pollster = "0.4.0"
