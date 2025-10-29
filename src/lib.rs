@@ -6,8 +6,10 @@ use log::{debug, error, info};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::keyboard;
+use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 use crate::models::{ModelVertex, Vertex};
 
@@ -24,6 +26,7 @@ pub struct State {
     camera_uniform: camera::CameraUniform,
     camera_bind_group: wgpu::BindGroup,
     camera_buffer: wgpu::Buffer,
+    camera_controller: camera::CameraController,
 
     pipe_model_I: models::Model,
     pipe_model_L: models::Model,
@@ -111,6 +114,8 @@ impl State {
             }],
         });
 
+        let camera_controller = camera::CameraController::new(0.02);
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("RenderPipelineLayout"),
@@ -181,6 +186,7 @@ impl State {
             camera_uniform,
             camera_bind_group,
             camera_buffer,
+            camera_controller,
 
             pipe_model_I,
             pipe_model_L,
@@ -196,7 +202,11 @@ impl State {
         }
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        self.camera_controller.update_camera(&mut self.camera);
+        self.camera_uniform.update_view_projection(&self.camera);
+        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+    }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         self.window.request_redraw();
@@ -300,6 +310,14 @@ impl ApplicationHandler<State> for App {
                         state.resize(size.width, size.height);
                     }
                     Err(e) => error!("Cannot render window: {:?}", e),
+                }
+            },
+            WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state: key_state,  .. }, .. } => {
+                let is_pressed = key_state.is_pressed();
+                if code == keyboard::KeyCode::Escape && is_pressed {
+                    event_loop.exit();
+                } else {
+                    state.camera_controller.handle_key(code, is_pressed);
                 }
             }
             _ => {}
