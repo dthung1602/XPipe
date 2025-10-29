@@ -1,9 +1,11 @@
 mod camera;
 mod models;
 mod resources;
+mod instance;
 
-use log::{debug, error, info};
+use log::{error};
 use std::sync::Arc;
+use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::event::{KeyEvent, WindowEvent};
@@ -11,7 +13,11 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard;
 use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
-use crate::models::{ModelVertex, Vertex};
+use crate::models::Vertex;
+
+const NUM_INSTANCES_PER_ROW: u32 = 2;
+const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
+
 
 pub struct State {
     window: Arc<Window>,
@@ -27,6 +33,9 @@ pub struct State {
     camera_bind_group: wgpu::BindGroup,
     camera_buffer: wgpu::Buffer,
     camera_controller: camera::CameraController,
+
+    instances: Vec<instance::Instance>,
+    instance_buffer: wgpu::Buffer,
 
     pipe_model_I: models::Model,
     pipe_model_L: models::Model,
@@ -116,6 +125,31 @@ impl State {
 
         let camera_controller = camera::CameraController::new(0.02);
 
+        let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
+            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                let position = cgmath::Vector3 { x: (x * 2) as f32, y: 0.0, z: (z * 2) as f32 } - INSTANCE_DISPLACEMENT;
+
+                let rotation = if position.is_zero() {
+                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                    // as Quaternions can affect scale if they're not created correctly
+                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                } else {
+                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(10.0))
+                };
+
+                instance::Instance { position, rotation }
+            })
+        }).collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("InstanceBuffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("RenderPipelineLayout"),
@@ -133,7 +167,8 @@ impl State {
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
                 buffers: &[
-                    ModelVertex::layout(),
+                    models::ModelVertex::layout(),
+                    instance::InstanceRaw::layout(),
                 ],
             },
             fragment: Some(wgpu::FragmentState {
@@ -153,7 +188,7 @@ impl State {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -171,8 +206,6 @@ impl State {
         let pipe_model_I = models::Model::load_model("pipe.obj", &device).await?;
         let pipe_model_L = models::Model::load_model("curve.obj", &device).await?;
 
-
-
         Ok(Self {
             window,
             surface,
@@ -187,6 +220,9 @@ impl State {
             camera_bind_group,
             camera_buffer,
             camera_controller,
+
+            instances,
+            instance_buffer,
 
             pipe_model_I,
             pipe_model_L,
@@ -253,8 +289,9 @@ impl State {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             let pipe_mesh = &self.pipe_model_L.meshes[0];
             render_pass.set_vertex_buffer(0, pipe_mesh.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(pipe_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..pipe_mesh.num_elements, 0, 0..1);
+            render_pass.draw_indexed(0..pipe_mesh.num_elements, 0, 0..self.instances.len() as u32);
         }
 
         // submit will accept anything that implements IntoIter
