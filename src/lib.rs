@@ -17,7 +17,7 @@ use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 use crate::models::Vertex;
 
-const NUM_INSTANCES_PER_ROW: u32 = 2;
+const NUM_INSTANCES_PER_ROW: u32 = 3;
 const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
 
 
@@ -110,7 +110,7 @@ impl State {
                 label: Some("CameraBindGroupLayout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -129,7 +129,7 @@ impl State {
             }],
         });
 
-        let camera_controller = camera::CameraController::new(0.02);
+        let camera_controller = camera::CameraController::new(0.01);
 
         let light_uniform = light::LightUniform {
             position: [2.0, 2.0, 2.0],
@@ -173,7 +173,7 @@ impl State {
                     // as Quaternions can affect scale if they're not created correctly
                     cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
                 } else {
-                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(10.0))
+                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(20.0))
                 };
 
                 instance::Instance { position, rotation }
@@ -277,6 +277,14 @@ impl State {
     }
 
     pub fn update(&mut self) {
+        // Update the light
+        let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
+        self.light_uniform.position =
+            (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(0.05))
+                * old_position)
+                .into();
+        self.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light_uniform]));
+        // Update the camera
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_projection(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
@@ -397,7 +405,7 @@ impl State {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: texture::Texture::DEPTH_FORMAT,
-                depth_write_enabled: false,
+                depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: Default::default(),
                 bias: Default::default(),

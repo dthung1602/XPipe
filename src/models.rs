@@ -9,7 +9,7 @@ pub trait Vertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ModelVertex {
     pub position: [f32; 3],
-    // pub normal: [f32; 3],
+    pub normal: [f32; 3],
 }
 
 impl Vertex for ModelVertex {
@@ -23,11 +23,11 @@ impl Vertex for ModelVertex {
                     shader_location: 0,
                     format: wgpu::VertexFormat::Float32x3,
                 },
-                // wgpu::VertexAttribute {
-                //     offset: size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                //     shader_location: 1,
-                //     format: wgpu::VertexFormat::Float32x3,
-                // }
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                }
             ],
         }
     }
@@ -79,7 +79,7 @@ impl Model {
                                     m.mesh.positions[i * 3 + 1],
                                     m.mesh.positions[i * 3 + 2],
                                 ],
-                                // normal: [0.0, 0.0, 0.0],
+                                normal: [0.0, 0.0, 0.0],
                             }
                         }else{
                             ModelVertex {
@@ -88,11 +88,11 @@ impl Model {
                                     m.mesh.positions[i * 3 + 1],
                                     m.mesh.positions[i * 3 + 2],
                                 ],
-                                // normal: [
-                                //     m.mesh.normals[i * 3],
-                                //     m.mesh.normals[i * 3 + 1],
-                                //     m.mesh.normals[i * 3 + 2],
-                                // ],
+                                normal: [
+                                    m.mesh.normals[i * 3],
+                                    m.mesh.normals[i * 3 + 1],
+                                    m.mesh.normals[i * 3 + 2],
+                                ],
                             }
                         }
                     })
