@@ -6,4 +6,3 @@ pub struct LightUniform {
     pub color: [f32; 3],
     pub _padding2: u32,
 }
-

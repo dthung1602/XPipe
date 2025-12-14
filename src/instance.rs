@@ -1,3 +1,4 @@
+#[derive(Clone, Debug)]
 pub struct Instance {
     pub position: cgmath::Vector3<f32>,
     pub rotation: cgmath::Quaternion<f32>,
@@ -60,7 +61,7 @@ impl InstanceRaw {
                     shader_location: 11,
                     format: wgpu::VertexFormat::Float32x3,
                 },
-            ]
+            ],
         }
     }
 }

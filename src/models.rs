@@ -1,6 +1,9 @@
 use std::io::{BufReader, Cursor};
+
 use wgpu::util::DeviceExt;
+
 use crate::resources::load_string;
+
 pub trait Vertex {
     fn layout() -> wgpu::VertexBufferLayout<'static>;
 }
@@ -27,7 +30,7 @@ impl Vertex for ModelVertex {
                     offset: size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
-                }
+                },
             ],
         }
     }
@@ -45,10 +48,7 @@ pub struct Model {
 }
 
 impl Model {
-    pub async fn load_model(
-        file_name: &str,
-        device: &wgpu::Device,
-    ) -> anyhow::Result<Model> {
+    pub async fn load_model(file_name: &str, device: &wgpu::Device) -> anyhow::Result<Model> {
         let obj_text = load_string(file_name).await?;
         let obj_cursor = Cursor::new(obj_text);
         let mut obj_reader = BufReader::new(obj_cursor);
@@ -65,14 +65,14 @@ impl Model {
                 tobj::load_mtl_buf(&mut BufReader::new(Cursor::new(mat_text)))
             },
         )
-            .await?;
+        .await?;
 
         let meshes = models
             .into_iter()
             .map(|m| {
                 let vertices = (0..m.mesh.positions.len() / 3)
                     .map(|i| {
-                        if m.mesh.normals.is_empty(){
+                        if m.mesh.normals.is_empty() {
                             ModelVertex {
                                 position: [
                                     m.mesh.positions[i * 3],
@@ -81,7 +81,7 @@ impl Model {
                                 ],
                                 normal: [0.0, 0.0, 0.0],
                             }
-                        }else{
+                        } else {
                             ModelVertex {
                                 position: [
                                     m.mesh.positions[i * 3],

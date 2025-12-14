@@ -1,13 +1,15 @@
 mod camera;
-mod models;
-mod resources;
 mod instance;
 mod light;
+mod models;
+mod resources;
 mod texture;
+mod world;
 
-use log::error;
 use std::sync::Arc;
+
 use cgmath::prelude::*;
+use log::{debug, error};
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::event::{KeyEvent, WindowEvent};
@@ -15,11 +17,16 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard;
 use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
+
 use crate::models::Vertex;
+use crate::world::{Direction, PipeType, World};
 
 const NUM_INSTANCES_PER_ROW: u32 = 3;
-const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
-
+const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+    0.0,
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+);
 
 pub struct State {
     window: Arc<Window>,
@@ -32,6 +39,8 @@ pub struct State {
     light_render_pipeline: wgpu::RenderPipeline,
     depth_texture: texture::Texture,
 
+    world: World,
+
     camera: camera::Camera,
     camera_uniform: camera::CameraUniform,
     camera_bind_group: wgpu::BindGroup,
@@ -42,8 +51,8 @@ pub struct State {
     light_bind_group: wgpu::BindGroup,
     light_buffer: wgpu::Buffer,
 
-    instances: Vec<instance::Instance>,
-    instance_buffer: wgpu::Buffer,
+    instance_I_buffer: wgpu::Buffer,
+    instance_L_buffer: wgpu::Buffer,
 
     pipe_model_I: models::Model,
     pipe_model_L: models::Model,
@@ -105,20 +114,19 @@ impl State {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("CameraBindGroupLayout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("CameraBindGroupLayout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("CameraBindGroup"),
@@ -153,7 +161,7 @@ impl State {
                     min_binding_size: None,
                 },
                 count: None,
-            }]
+            }],
         });
         let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("LightBindGroup"),
@@ -164,72 +172,53 @@ impl State {
             }],
         });
 
-        let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
-            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                let position = cgmath::Vector3 { x: (x * 2) as f32, y: 0.0, z: (z * 2) as f32 } - INSTANCE_DISPLACEMENT;
+        let mut world = World::new();
+         world.add_debug_pipe(PipeType::I, (1, 5, 3), Direction::X);
+         world.add_debug_pipe(PipeType::I, (2, 5, 3), Direction::X);
+         world.add_debug_pipe(PipeType::I, (3, 5, 3), Direction::X);
+         world.add_debug_pipe(PipeType::L, (4, 5, 3), Direction::Y);
+        let instance_data_I = world.get_I_pipe_instances().iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
+        let instance_data_L = world.get_L_pipe_instances().iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
 
-                let rotation = if position.is_zero() {
-                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                    // as Quaternions can affect scale if they're not created correctly
-                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-                } else {
-                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(20.0))
-                };
-
-                instance::Instance { position, rotation }
-            })
-        }).collect::<Vec<_>>();
-
-        let instance_data = instances.iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("InstanceBuffer"),
-                contents: bytemuck::cast_slice(&instance_data),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
+        let instance_I_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("InstanceIBuffer"),
+            contents: bytemuck::cast_slice(&instance_data_I),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let instance_L_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("InstanceLBuffer"),
+            contents: bytemuck::cast_slice(&instance_data_L),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
         let depth_texture = texture::Texture::create_depth_texture(&device, &surface_config);
 
         let render_pipeline = {
-            let layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("RenderPipelineLayout"),
-                    bind_group_layouts: &[
-                        &camera_bind_group_layout,
-                        &light_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("RenderPipelineLayout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                push_constant_ranges: &[],
+            });
             Self::create_render_pipeline(
                 &device,
                 &layout,
                 surface_config.format,
-                &[
-                    models::ModelVertex::layout(),
-                    instance::InstanceRaw::layout(),
-                ],
+                &[models::ModelVertex::layout(), instance::InstanceRaw::layout()],
                 wgpu::include_wgsl!("shader.wgsl"),
             )
         };
 
         let light_render_pipeline = {
-            let layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("LightRenderPipelineLayout"),
-                    bind_group_layouts: &[
-                        &camera_bind_group_layout,
-                        &light_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("LightRenderPipelineLayout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                push_constant_ranges: &[],
+            });
             Self::create_render_pipeline(
                 &device,
                 &layout,
                 surface_config.format,
-                &[
-                    models::ModelVertex::layout(),
-                ],
+                &[models::ModelVertex::layout()],
                 wgpu::include_wgsl!("light.wgsl"),
             )
         };
@@ -248,6 +237,8 @@ impl State {
             light_render_pipeline,
             depth_texture,
 
+            world,
+
             camera,
             camera_uniform,
             camera_bind_group,
@@ -258,8 +249,8 @@ impl State {
             light_bind_group,
             light_buffer,
 
-            instances,
-            instance_buffer,
+            instance_I_buffer,
+            instance_L_buffer,
 
             pipe_model_I,
             pipe_model_L,
@@ -280,14 +271,14 @@ impl State {
         // Update the light
         let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
         self.light_uniform.position =
-            (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(0.05))
-                * old_position)
-                .into();
-        self.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light_uniform]));
+            (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(0.05)) * old_position).into();
+        self.queue
+            .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light_uniform]));
         // Update the camera
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_projection(&self.camera);
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -299,15 +290,11 @@ impl State {
 
         let output = self.surface.get_current_texture()?;
 
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("RenderEncoder"),
-            });
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("RenderEncoder"),
+        });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -341,16 +328,35 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-            let pipe_mesh = &self.pipe_model_L.meshes[0];
-            render_pass.set_vertex_buffer(0, pipe_mesh.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(pipe_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..pipe_mesh.num_elements, 0, 0..self.instances.len() as u32);
+
+            if self.instance_L_buffer.size() > 0 {
+                let pipe_mesh = &self.pipe_model_L.meshes[0];
+                render_pass.set_vertex_buffer(0, pipe_mesh.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, self.instance_L_buffer.slice(..));
+                render_pass.set_index_buffer(pipe_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(
+                    0..pipe_mesh.num_elements,
+                    0,
+                    0..self.world.get_L_pipe_instances().len() as u32,
+                );
+            }
+
+            if self.instance_I_buffer.size() > 0 {
+                let pipe_mesh = &self.pipe_model_I.meshes[0];
+                render_pass.set_vertex_buffer(0, pipe_mesh.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, self.instance_I_buffer.slice(..));
+                render_pass.set_index_buffer(pipe_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(
+                    0..pipe_mesh.num_elements,
+                    0,
+                    0..self.world.get_I_pipe_instances().len() as u32,
+                );
+            }
 
             render_pass.set_pipeline(&self.light_render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-            let pipe_mesh = &self.pipe_model_I.meshes[0];
+            let pipe_mesh = &self.pipe_model_L.meshes[0];
             render_pass.set_vertex_buffer(0, pipe_mesh.vertex_buffer.slice(..));
             render_pass.set_index_buffer(pipe_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..pipe_mesh.num_elements, 0, 0..1);
@@ -443,12 +449,7 @@ impl ApplicationHandler<State> for App {
         self.state = Some(event)
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
         let state = match &mut self.state {
             None => return,
             Some(s) => s,
@@ -467,8 +468,16 @@ impl ApplicationHandler<State> for App {
                     }
                     Err(e) => error!("Cannot render window: {:?}", e),
                 }
-            },
-            WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state: key_state,  .. }, .. } => {
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(code),
+                        state: key_state,
+                        ..
+                    },
+                ..
+            } => {
                 let is_pressed = key_state.is_pressed();
                 if code == keyboard::KeyCode::Escape && is_pressed {
                     event_loop.exit();

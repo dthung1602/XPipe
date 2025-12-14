@@ -53,7 +53,7 @@ impl CameraUniform {
             view_projection: cgmath::Matrix4::identity().into(),
         }
     }
-    
+
     pub fn update_view_projection(&mut self, camera: &Camera) {
         self.view_position = camera.eye.to_homogeneous().into();
         self.view_projection = camera.build_view_projection_matrix().into();
@@ -67,7 +67,6 @@ pub struct CameraController {
     is_left_pressed: bool,
     is_right_pressed: bool,
 }
-
 
 impl CameraController {
     pub fn new(speed: f32) -> Self {
