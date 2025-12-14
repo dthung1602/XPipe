@@ -13,3 +13,4 @@ tobj = { version = "4.0.3", features = ["async"] }
 wgpu = "27.0.1"
 winit = "0.30.12"
 pollster = "0.4.0"
+rand = "0.9.2"
