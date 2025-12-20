@@ -21,13 +21,6 @@ use winit::window::{Window, WindowId};
 use crate::models::Vertex;
 use crate::world::{Direction, PipeType, World};
 
-const NUM_INSTANCES_PER_ROW: u32 = 3;
-const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
-    NUM_INSTANCES_PER_ROW as f32 * 0.5,
-    0.0,
-    NUM_INSTANCES_PER_ROW as f32 * 0.5,
-);
-
 pub struct State {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
@@ -173,10 +166,13 @@ impl State {
         });
 
         let mut world = World::new();
-         world.add_debug_pipe(PipeType::I, (1, 5, 3), Direction::X);
-         world.add_debug_pipe(PipeType::I, (2, 5, 3), Direction::X);
-         world.add_debug_pipe(PipeType::I, (3, 5, 3), Direction::X);
-         world.add_debug_pipe(PipeType::L, (4, 5, 3), Direction::Y);
+        for _ in 0..20 {
+            world.add_pipe();
+        }
+        // world.add_debug_pipe(PipeType::I, (3, 4, 1), Direction::_Y);
+        // world.add_debug_pipe(PipeType::I, (3, 3, 1), Direction::_Y);
+        // world.add_debug_pipe(PipeType::L, (3, 2, 1), Direction::Z);
+
         let instance_data_I = world.get_I_pipe_instances().iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
         let instance_data_L = world.get_L_pipe_instances().iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
 

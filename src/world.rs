@@ -86,6 +86,12 @@ pub struct World {
     last_block: Option<Block>,
 }
 
+const WORLD_X: u32 = 30;
+const WORLD_Y: u32 = 30;
+const WORLD_Z: u32 = 30;
+const TURN_PROBABILITY: f32 = 0.3;
+const STOP_PROBABILITY: f32 = 0.0;
+
 /**
     World coordinate system
     X: to the right
@@ -108,11 +114,11 @@ impl World {
     pub fn new() -> Self {
         Self {
             // TODO consider scale to screen ratio
-            max_x_block: 10,
-            max_y_block: 8,
-            max_z_block: 8,
-            turn_probability: 0.1,
-            stop_probability: 0.1,
+            max_x_block: WORLD_X,
+            max_y_block: WORLD_Y,
+            max_z_block: WORLD_Z,
+            turn_probability: TURN_PROBABILITY,
+            stop_probability: STOP_PROBABILITY,
             i_pipe_instances: vec![],
             l_pipe_instances: vec![],
             occupied_blocks: HashSet::with_capacity(128),
@@ -134,8 +140,6 @@ impl World {
         } else {
             self.next_block()
         };
-
-        dbg!(block);
 
         match block.pipe_type {
             PipeType::I => {
@@ -173,9 +177,9 @@ impl World {
     fn random_block(&self) -> Block {
         let position = loop {
             let position = (
-                rand::random_range(0..self.max_x_block),
-                rand::random_range(0..self.max_y_block),
-                rand::random_range(0..self.max_z_block),
+                rand::random_range(0..self.max_x_block / 2),
+                rand::random_range(0..self.max_y_block / 2),
+                rand::random_range(0..self.max_z_block / 2),
             );
             if !self.occupied_blocks.contains(&position) {
                 break position;
@@ -274,8 +278,8 @@ impl World {
                     Z => -90.0,
                     _ => panic!("Invalid direction"),
                 };
+                cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_x(), cgmath::Deg(deg)) *
                 cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(90.0))
-                    * cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_x(), cgmath::Deg(deg))
             }
             Y => {
                 let deg = match last_block_dir {
@@ -295,8 +299,8 @@ impl World {
                     Z => 90.0,
                     _ => panic!("Invalid direction"),
                 };
+                cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_y(), cgmath::Deg(deg)) *
                 cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_x(), cgmath::Deg(180.0))
-                    * cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_y(), cgmath::Deg(deg))
             }
             Z => {
                 let deg = match last_block_dir {
@@ -306,8 +310,8 @@ impl World {
                     Y => -90.0,
                     _ => panic!("Invalid direction"),
                 };
+                cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(deg)) *
                 cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_x(), cgmath::Deg(90.0))
-                    * cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(deg))
             }
             _Z => {
                 let deg = match last_block_dir {
@@ -317,8 +321,8 @@ impl World {
                     Y => -90.0,
                     _ => panic!("Invalid direction"),
                 };
+                cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(deg)) *
                 cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_x(), cgmath::Deg(-90.0))
-                    * cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(deg))
             }
         };
 
