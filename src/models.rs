@@ -82,17 +82,22 @@ impl Model {
                                 normal: [0.0, 0.0, 0.0],
                             }
                         } else {
+                            let normal = if i * 3 >= m.mesh.normals.len() {
+                                [1.0, 0.0, 0.0]
+                            } else {
+                                [
+                                    m.mesh.normals[i * 3],
+                                    m.mesh.normals[i * 3 + 1],
+                                    m.mesh.normals[i * 3 + 2],
+                                ]
+                            };
                             ModelVertex {
                                 position: [
                                     m.mesh.positions[i * 3],
                                     m.mesh.positions[i * 3 + 1],
                                     m.mesh.positions[i * 3 + 2],
                                 ],
-                                normal: [
-                                    m.mesh.normals[i * 3],
-                                    m.mesh.normals[i * 3 + 1],
-                                    m.mesh.normals[i * 3 + 2],
-                                ],
+                                normal,
                             }
                         }
                     })

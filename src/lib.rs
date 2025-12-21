@@ -166,12 +166,9 @@ impl State {
         });
 
         let mut world = World::new();
-        for _ in 0..20 {
+        for _ in 0..100 {
             world.add_pipe();
         }
-        // world.add_debug_pipe(PipeType::I, (3, 4, 1), Direction::_Y);
-        // world.add_debug_pipe(PipeType::I, (3, 3, 1), Direction::_Y);
-        // world.add_debug_pipe(PipeType::L, (3, 2, 1), Direction::Z);
 
         let instance_data_I = world.get_I_pipe_instances().iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
         let instance_data_L = world.get_L_pipe_instances().iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
