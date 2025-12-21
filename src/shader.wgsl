@@ -29,12 +29,14 @@ struct InstanceInput {
     @location(9) normal_matrix_0: vec3<f32>,
     @location(10) normal_matrix_1: vec3<f32>,
     @location(11) normal_matrix_2: vec3<f32>,
+    @location(12) color: vec3<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_normal: vec3<f32>,
     @location(1) world_position: vec3<f32>,
+    @location(2) color: vec3<f32>,
 };
 
 @vertex
@@ -58,6 +60,7 @@ fn vs_main(
     out.clip_position = camera.view_proj * world_position;
     out.world_normal = normal_matrix * model.normal;
     out.world_position = world_position.xyz;
+    out.color = instance.color;
     return out;
 }
 
@@ -66,8 +69,6 @@ fn vs_main(
 fn fs_main(
     in: VertexOutput,
 ) -> @location(0) vec4<f32> {
-    let obj_color = vec3<f32>(0.1, 0.2, 0.1);
-
     let ambient_strength = 0.1;
     let ambient_color = light.color * ambient_strength;
 
@@ -80,7 +81,7 @@ fn fs_main(
     let specular_strength = pow(max(dot(in.world_normal, half_dir), 0.0), 32.0);
     let specular_color = specular_strength * light.color;
 
-    let result = (ambient_color + diffuse_color + specular_color) * obj_color;
+    let result = (ambient_color + diffuse_color + specular_color) * in.color;
 
     return vec4<f32>(result, 1.0);
 }

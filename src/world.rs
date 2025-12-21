@@ -1,9 +1,32 @@
 use std::collections::HashSet;
-
+use rand::seq::IndexedRandom;
 use cgmath::Rotation3;
 
 use crate::instance::Instance;
-use crate::world::Direction::{_X, _Y, _Z, X, Y, Z};
+
+
+macro_rules! rgb {
+    ($r:expr, $g:expr, $b:expr) => {[ ($r as f32) / 256.0, ($g as f32) / 256.0, ($b as f32) / 256.0 ]};
+}
+
+const COLOR: &[[f32; 3]] = &[
+    rgb!(116, 222, 215),
+    rgb!(255, 0, 0),
+    rgb!(247, 104, 31),
+    rgb!(75, 151, 160),
+    rgb!(254, 211, 86),
+    rgb!(250, 231, 231),
+    rgb!(132, 123, 14),
+    rgb!(251, 155, 72),
+    rgb!(14, 169, 30),
+    rgb!(158, 235, 189),
+    rgb!(2, 143, 146)
+];
+
+fn random_color() -> &'static [f32; 3] {
+    let mut rng = rand::rng();
+    COLOR.choose(&mut rng).unwrap()
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum PipeType {
@@ -21,45 +44,26 @@ pub enum Direction {
     _Z,
 }
 
+const ALL_DIRECTIONS: [Direction; 6] = [Direction::X, Direction::Y, Direction::Z, Direction::_X, Direction::_Y, Direction::_Z];
+const PERPENDICULAR_X: [Direction; 4] = [Direction::Y, Direction::_Y, Direction::Z, Direction::_Z];
+const PERPENDICULAR_Y: [Direction; 4] = [Direction::X, Direction::_X, Direction::Z, Direction::_Z];
+const PERPENDICULAR_Z: [Direction; 4] = [Direction::Y, Direction::_Y, Direction::X, Direction::_X];
+
 impl Direction {
     fn random() -> Direction {
-        let x = rand::random::<f32>();
-        if x < 1.0 / 6.0 {
-            return Direction::X;
-        }
-        if x < 2.0 / 6.0 {
-            return Direction::Y;
-        }
-        if x < 3.0 / 6.0 {
-            return Direction::Z;
-        }
-        if x < 4.0 / 6.0 {
-            return Direction::_X;
-        }
-        if x < 5.0 / 6.0 {
-            return Direction::_Y;
-        }
-        Direction::_Z
+        let mut rng = rand::rng();
+        *ALL_DIRECTIONS.choose(&mut rng).unwrap()
     }
 
     fn random_perpendicular(self) -> Direction {
         use Direction::*;
         let options = match self {
-            X | _X => (Y, _Y, Z, _Z),
-            Y | _Y => (X, _X, Z, _Z),
-            Z | _Z => (Y, _Y, X, _X),
+            X | _X => &PERPENDICULAR_X,
+            Y | _Y => &PERPENDICULAR_Y,
+            Z | _Z => &PERPENDICULAR_Z,
         };
-        let val = rand::random::<f32>();
-        if val < 0.25 {
-            return options.0;
-        }
-        if val < 0.5 {
-            return options.1;
-        }
-        if val < 0.75 {
-            return options.2;
-        }
-        options.3
+        let mut rng = rand::rng();
+        *options.choose(&mut rng).unwrap()
     }
 }
 
@@ -68,6 +72,7 @@ struct Block {
     pipe_type: PipeType,
     direction: Direction, // direction of output pipe
     position: (u32, u32, u32),
+    color: [f32; 3],
 }
 
 #[derive(Clone, Debug)]
@@ -156,8 +161,8 @@ impl World {
         self.last_block = Some(block);
     }
 
-    pub fn add_debug_pipe(&mut self, pipe_type: PipeType, position: (u32, u32, u32), direction: Direction) {
-        let block = Block { pipe_type, direction, position };
+    pub fn add_debug_pipe(&mut self, pipe_type: PipeType, position: (u32, u32, u32), direction: Direction, color: [f32; 3]) {
+        let block = Block { pipe_type, direction, position, color };
 
         match block.pipe_type {
             PipeType::I => {
@@ -189,6 +194,7 @@ impl World {
         Block {
             pipe_type: PipeType::I, // always start with I for eases of impl
             direction: Direction::random(),
+            color: *random_color(),
             position,
         }
     }
@@ -196,6 +202,7 @@ impl World {
     fn next_block(&self) -> Block {
         use Direction::*;
         let last_block = self.last_block.as_ref().unwrap();
+        let color = last_block.color;
 
         let position = match last_block.direction {
             X => (last_block.position.0 + 1, last_block.position.1, last_block.position.2),
@@ -213,12 +220,14 @@ impl World {
 
         if rand::random::<f32>() < self.turn_probability {
             Block {
+                color,
                 position,
                 direction: last_block.direction.random_perpendicular(),
                 pipe_type: PipeType::L,
             }
         } else {
             Block {
+                color,
                 position,
                 direction: last_block.direction,
                 pipe_type: PipeType::I,
@@ -250,7 +259,7 @@ impl World {
 
         // TODO add model offset to position
 
-        Instance { position, rotation }
+        Instance { position, rotation, color: block.color }
     }
 
     fn l_instance_at_block(&self, block: &Block) -> Instance {
@@ -328,6 +337,6 @@ impl World {
 
         // TODO add model offset to position
 
-        Instance { position, rotation }
+        Instance { position, rotation, color: block.color }
     }
 }

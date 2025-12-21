@@ -166,7 +166,7 @@ impl State {
         });
 
         let mut world = World::new();
-        for _ in 0..100 {
+        for _ in 0..50 {
             world.add_pipe();
         }
 
